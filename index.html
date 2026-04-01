@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSQL Workspace — ServiceNow CSP (Polaris Light)</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f4f5f7; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f4f5f7; }
+        ::-webkit-scrollbar-thumb { background: #a3b3c2; border-radius: 3px; }
+        input, select, textarea { font-family: 'Helvetica Neue', Arial, sans-serif; }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── Horizon Design Tokens (Polaris Light Theme) ──
+const C = {
+  bg1: '#f4f5f7', bg2: '#ffffff', bg3: '#e8eaed', bg4: '#ffffff',
+  int: '#0066cc', intH: '#004999',
+  t1: '#1e252c', t2: '#4d5c6b', t3: '#6e8091', t4: '#a3b3c2',
+  ok: '#28a745', warn: '#e8a800', crit: '#dc3545', info: '#17a2b8',
+  b1: '#d3d8de', b2: '#a3b3c2',
+  green: '#81b5a1', wasabi: '#63df4e',
+  // Light-only helpers
+  shadow: '0 1px 3px rgba(0,0,0,0.08)',
+  shadowMd: '0 4px 12px rgba(0,0,0,0.1)',
+};
+
+// ── Data ──
+const PRODUCTS = [
+  { id: 'itsm', n: 'ITSM Pro' }, { id: 'itom', n: 'ITOM' }, { id: 'csm', n: 'Customer Service Mgmt' },
+  { id: 'hrsd', n: 'HR Service Delivery' }, { id: 'secops', n: 'Security Operations' },
+  { id: 'grc', n: 'GRC' }, { id: 'itam', n: 'IT Asset Mgmt' }, { id: 'app_engine', n: 'App Engine' },
+  { id: 'virtual_agent', n: 'Virtual Agent' }, { id: 'now_assist', n: 'Now Assist (GenAI)' },
+  { id: 'impact', n: 'Impact Services' }, { id: 'aiops', n: 'AIOps' }, { id: 'fsm', n: 'Field Service Mgmt' },
+];
+const TYPES = [
+  { v: 'platform', l: 'Platform (Licenses)', c: C.int },
+  { v: 'services', l: 'Professional Services', c: C.warn },
+  { v: 'training', l: 'Training & Enablement', c: C.info },
+  { v: 'impact', l: 'Impact (Premium CS)', c: C.green },
+];
+const STATUSES = [
+  { k: 'identified', l: 'Identified', c: C.info },
+  { k: 'qualifying', l: 'Qualifying', c: C.warn },
+  { k: 'qualified', l: 'Qualified', c: C.int },
+  { k: 'handed_off', l: 'Handed Off', c: C.green },
+  { k: 'accepted', l: 'Sales Accepted', c: C.wasabi },
+  { k: 'won', l: 'Closed Won', c: C.ok },
+  { k: 'lost', l: 'Closed Lost', c: C.crit },
+];
+const nextStatus = { identified: ['qualifying'], qualifying: ['qualified'], qualified: ['handed_off'], handed_off: ['accepted','lost'], accepted: ['won','lost'] };
+const SIGNALS = {
+  usage_spike: { l: 'Usage Spike (+40%)', s: 'high' },
+  new_dept: { l: 'New Dept Onboarding', s: 'high' },
+  nps_promoter: { l: 'NPS Promoter (9-10)', s: 'medium' },
+  maturity_ready: { l: 'Maturity Ready', s: 'high' },
+  feature_req: { l: 'Feature Requests', s: 'medium' },
+  exec_change: { l: 'Executive Change', s: 'low' },
+  contract: { l: 'Renewal Window', s: 'medium' },
+  competitor: { l: 'Competitor Expiring', s: 'medium' },
+};
+const ACCOUNTS = [
+  { id:'a1', name:'Meridian Financial', tier:'Strategic', acv:2400000, health:82, nps:9, products:['itsm','itom','secops'], signals:['usage_spike','nps_promoter','maturity_ready'], contacts:[{n:'Sarah Chen',t:'VP Ops',champ:true},{n:'David Park',t:'CIO',champ:false}] },
+  { id:'a2', name:'TechVault Solutions', tier:'Enterprise', acv:980000, health:58, nps:7, products:['itsm','hrsd'], signals:['feature_req','new_dept'], contacts:[{n:'Michael Rodriguez',t:'CTO',champ:false}] },
+  { id:'a3', name:'Global Logistics Corp', tier:'Strategic', acv:3100000, health:91, nps:10, products:['itsm','itom','csm','fsm'], signals:['maturity_ready','nps_promoter','usage_spike','contract'], contacts:[{n:'Lisa Wang',t:'CDO',champ:true},{n:'Robert Taylor',t:'VP Tech',champ:true}] },
+  { id:'a4', name:'Quantum Healthcare', tier:'Enterprise', acv:1600000, health:66, nps:7, products:['itsm','secops','grc'], signals:['exec_change','competitor','contract'], contacts:[{n:'Sophie Anderson',t:'CIO (new)',champ:false}] },
+  { id:'a5', name:'Pinnacle Manufacturing', tier:'Strategic', acv:2800000, health:85, nps:8, products:['itsm','itom','itam','app_engine'], signals:['maturity_ready','feature_req','new_dept'], contacts:[{n:"Kevin O'Brien",t:'VP IT',champ:true}] },
+];
+
+const INIT_CSQLS = [
+  { id:'CSQL-001', acctId:'a3', type:'platform', status:'accepted', by:'Alex Thompson', date:'2026-01-12', products:['now_assist','aiops'], acv:480000, score:92, signals:['maturity_ready','nps_promoter'], note:'Full stack adopted. CDO interested in AI. NPS 10.' },
+  { id:'CSQL-002', acctId:'a1', type:'platform', status:'qualified', by:'Alex Thompson', date:'2026-01-25', products:['grc','virtual_agent'], acv:320000, score:85, signals:['usage_spike','maturity_ready'], note:'SecOps success → natural GRC extension. Users up 40%.' },
+  { id:'CSQL-003', acctId:'a4', type:'services', status:'qualifying', by:'Priya Sharma', date:'2026-02-01', products:['hrsd','csm'], acv:210000, score:64, signals:['exec_change','competitor'], note:'New CIO evaluating consolidation. Legacy HR contract expiring Q2.' },
+  { id:'CSQL-004', acctId:'a5', type:'impact', status:'handed_off', by:'Priya Sharma', date:'2026-01-18', products:['impact'], acv:350000, score:78, signals:['maturity_ready','feature_req'], note:'5-product deployment needs dedicated TAM. App Engine usage surging.' },
+];
+
+const fmt = v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : `$${(v/1e3).toFixed(0)}K`;
+const hCol = s => s >= 80 ? C.ok : s >= 60 ? C.warn : C.crit;
+const hLbl = s => s >= 80 ? 'Healthy' : s >= 60 ? 'At Risk' : 'Critical';
+const sCol = s => ({ high: C.ok, medium: C.warn, low: C.info }[s]);
+
+// ── Reusable Components ──
+const Badge = ({bg, color, children}) => (
+  <span style={{ background: bg, color, padding:'2px 8px', borderRadius:4, fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.3px', whiteSpace:'nowrap' }}>{children}</span>
+);
+const StatusBadge = ({status}) => { const s = STATUSES.find(x=>x.k===status); return s ? <Badge bg={s.c+'20'} color={s.c}>{s.l}</Badge> : null; };
+const HealthBar = ({score, width=80}) => (
+  <div style={{display:'flex', alignItems:'center', gap:8}}>
+    <div style={{width, height:6, background:C.b1, borderRadius:3}}><div style={{width:`${score}%`, height:'100%', background:hCol(score), borderRadius:3, transition:'width 0.4s'}}/></div>
+    <span style={{fontSize:12, fontWeight:600, color:hCol(score), minWidth:24}}>{score}</span>
+  </div>
+);
+const ScoreRing = ({score, size=40}) => {
+  const r = size/2-4, circ = 2*Math.PI*r, off = circ-(score/100)*circ;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.b1} strokeWidth="3"/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={hCol(score)} strokeWidth="3" strokeDasharray={circ} strokeDashoffset={off} strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`} style={{transition:'stroke-dashoffset 0.5s'}}/>
+      <text x={size/2} y={size/2+4} textAnchor="middle" fill={hCol(score)} fontSize={size*0.3} fontWeight="700">{score}</text>
+    </svg>
+  );
+};
+const Btn = ({children, variant='primary', small, ...props}) => {
+  const styles = { primary:{background:C.int,color:'#fff'}, secondary:{background:C.bg3,color:C.t2,border:`1px solid ${C.b1}`}, success:{background:C.ok,color:'#fff'}, ghost:{background:'transparent',color:C.int} };
+  return <button style={{ border:'none', borderRadius:4, padding: small?'5px 10px':'8px 16px', fontSize: small?11:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit', transition:'opacity 0.15s', ...styles[variant] }} {...props}>{children}</button>;
+};
+const Field = ({label, children}) => (
+  <div style={{marginBottom:12}}>
+    <label style={{display:'block',color:C.t2,fontSize:11,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.3px',fontWeight:600}}>{label}</label>
+    {children}
+  </div>
+);
+const inputStyle = { width:'100%', padding:'8px 10px', background:C.bg2, border:`1px solid ${C.b1}`, borderRadius:4, color:C.t1, fontSize:13, fontFamily:'inherit', outline:'none', boxShadow:'inset 0 1px 2px rgba(0,0,0,0.06)' };
+
+// ── Main App ──
+function CSQLWorkspace() {
+  const [tab, setTab] = useState('signals');
+  const [csqls, setCsqls] = useState(INIT_CSQLS);
+  const [detail, setDetail] = useState(null);         // CSQL detail modal
+  const [acctPanel, setAcctPanel] = useState(null);    // Account slide-out
+
+  // ─ Create form state (top-level, no hooks-in-render) ─
+  const [formAcct, setFormAcct] = useState('');
+  const [formType, setFormType] = useState('');
+  const [formNote, setFormNote] = useState('');
+  const [formAcv, setFormAcv] = useState('');
+  const [formProducts, setFormProducts] = useState([]);
+  const [aiDone, setAiDone] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiRec, setAiRec] = useState(null);
+
+  const resetForm = () => { setFormAcct(''); setFormType(''); setFormNote(''); setFormAcv(''); setFormProducts([]); setAiDone(false); setAiRec(null); };
+  const acctObj = ACCOUNTS.find(a => a.id === formAcct);
+
+  const runAI = () => {
+    if (!acctObj) return;
+    setAiLoading(true);
+    setTimeout(() => {
+      const white = PRODUCTS.filter(p => !acctObj.products.includes(p.id)).slice(0,3);
+      setAiRec({
+        products: white.map(p=>p.id),
+        whyNow: `${acctObj.name} health at ${acctObj.health}% with ${acctObj.signals.length} active signals. ${acctObj.signals.includes('maturity_ready')?'Platform maturity indicates next-phase readiness.':''} ${acctObj.signals.includes('nps_promoter')?'Promoter NPS supports internal advocacy.':''}`.trim(),
+        acv: Math.round(acctObj.acv * 0.15),
+        pitch: white.map(p=>p.n).join(' → '),
+      });
+      setFormProducts(white.map(p=>p.id));
+      setFormAcv(String(Math.round(acctObj.acv * 0.15)));
+      setAiDone(true);
+      setAiLoading(false);
+    }, 1500);
+  };
+
+  const submitCSQL = () => {
+    if (!formAcct || !formType) return;
+    const acc = ACCOUNTS.find(a=>a.id===formAcct);
+    setCsqls(prev => [{ id:`CSQL-${String(prev.length+5).padStart(3,'0')}`, acctId:formAcct, type:formType, status:'identified', by:'You', date:new Date().toISOString().split('T')[0], products:formProducts, acv:parseInt(formAcv)||0, score:Math.round((acc?.health||70)*0.85), signals:acc?.signals?.slice(0,2)||[], note:formNote||aiRec?.whyNow||'' }, ...prev]);
+    resetForm();
+    setTab('pipeline');
+  };
+
+  const advanceStatus = (id, newStatus) => {
+    setCsqls(prev => prev.map(c => c.id === id ? {...c, status:newStatus} : c));
+    if (detail?.id === id) setDetail(prev => ({...prev, status:newStatus}));
+  };
+
+  const totalPipeline = csqls.reduce((s,c) => s+c.acv, 0);
+  const activeCount = csqls.filter(c => !['won','lost'].includes(c.status)).length;
+  const wonPipeline = csqls.filter(c => c.status==='won').reduce((s,c)=>s+c.acv,0);
+
+  // ── Aggregate signals across portfolio ──
+  const allSignals = [];
+  ACCOUNTS.forEach(acc => acc.signals.forEach(sId => {
+    const sig = SIGNALS[sId];
+    if (sig) allSignals.push({ ...sig, sId, acc });
+  }));
+  allSignals.sort((a,b) => {const w={high:3,medium:2,low:1}; return (w[b.s]*b.acc.health)-(w[a.s]*a.acc.health);});
+
+  const TABS = [
+    { k:'signals', l:'Expansion Signals', icon:'⚡' },
+    { k:'create', l:'Create CSQL', icon:'＋' },
+    { k:'pipeline', l:'Pipeline', icon:'◎' },
+    { k:'revenue', l:'Revenue Impact', icon:'◈' },
+  ];
+
+  // ════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════
+  return (
+    <div style={{ display:'flex', minHeight:'100vh', background:C.bg1, fontFamily:"'Helvetica Neue', Arial, sans-serif", color:C.t1 }}>
+
+      {/* ── Sidebar ── */}
+      <aside style={{ width:220, flexShrink:0, background:C.bg2, borderRight:`1px solid ${C.b1}`, display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', boxShadow:'2px 0 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ padding:'16px 16px 12px', borderBottom:`1px solid ${C.b1}` }}>
+          <div style={{fontSize:13, fontWeight:700, color:C.t1}}><span style={{color:C.green}}>●</span> ServiceNow</div>
+          <div style={{fontSize:10, color:C.t3, marginTop:2}}>CSQL Workspace</div>
+        </div>
+        <nav style={{padding:'8px 0', flex:1}}>
+          {TABS.map(t => (
+            <button key={t.k} onClick={()=>setTab(t.k)} style={{
+              display:'flex', alignItems:'center', gap:8, width:'100%', padding:'10px 16px',
+              background: tab===t.k ? C.int+'18' : 'transparent',
+              color: tab===t.k ? C.int : C.t2, border:'none', cursor:'pointer',
+              fontSize:13, fontWeight: tab===t.k ? 600 : 400, fontFamily:'inherit',
+              borderLeft: tab===t.k ? `3px solid ${C.int}` : '3px solid transparent',
+              textAlign:'left', transition:'all 0.12s',
+            }}><span style={{fontSize:14, width:18, textAlign:'center'}}>{t.icon}</span>{t.l}</button>
+          ))}
+        </nav>
+        <div style={{ padding:'12px 16px', borderTop:`1px solid ${C.b1}`, display:'flex', alignItems:'center', gap:8 }}>
+          <div style={{width:28,height:28,borderRadius:'50%',background:C.int+'30',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:C.int}}>AT</div>
+          <div><div style={{fontSize:11,fontWeight:600,color:C.t1}}>Alex Thompson</div><div style={{fontSize:9,color:C.t3}}>CSM · 5 Accounts</div></div>
+        </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <main style={{ flex:1, padding:24, overflowY:'auto' }}>
+
+        {/* ═══ SIGNALS TAB ═══ */}
+        {tab === 'signals' && (<div>
+          <h1 style={{fontSize:20,fontWeight:700,margin:'0 0 4px'}}>Expansion Signals</h1>
+          <p style={{fontSize:12,color:C.t3,margin:'0 0 20px'}}>AI-detected signals across your portfolio · Sorted by health × priority</p>
+
+          {/* Metrics strip */}
+          <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20}}>
+            {[
+              {l:'High Signals', v:allSignals.filter(s=>s.s==='high').length, c:C.ok},
+              {l:'Medium', v:allSignals.filter(s=>s.s==='medium').length, c:C.warn},
+              {l:'Accounts w/ Signals', v:new Set(allSignals.map(s=>s.acc.id)).size, c:C.int},
+              {l:'CS Pipeline', v:fmt(totalPipeline), c:C.green},
+            ].map((m,i) => (
+              <div key={i} style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, padding:'12px 16px', borderLeft:`3px solid ${m.c}`}}>
+                <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.5px'}}>{m.l}</div>
+                <div style={{fontSize:22,fontWeight:700,color:m.c,marginTop:4}}>{m.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Signal list */}
+          <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, overflow:'hidden'}}>
+            <table style={{width:'100%', borderCollapse:'collapse'}}>
+              <thead>
+                <tr style={{background:C.green}}>
+                  {['Health','Account','Signal','Severity','ACV',''].map((h,i)=>(
+                    <th key={i} style={{padding:'10px 12px', textAlign: i===4?'right':'left', fontSize:11, fontWeight:600, color:'#fff', textTransform:'uppercase', letterSpacing:'0.3px'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allSignals.map((sig, i) => (
+                  <tr key={i} style={{background: i%2===0 ? C.bg2 : C.bg3, borderBottom:`1px solid ${C.b1}`, cursor:'pointer'}} onClick={()=>setAcctPanel(sig.acc)}>
+                    <td style={{padding:'10px 12px'}}><HealthBar score={sig.acc.health} width={60}/></td>
+                    <td style={{padding:'10px 12px'}}><div style={{color:C.t1,fontWeight:600,fontSize:13}}>{sig.acc.name}</div><div style={{color:C.t3,fontSize:11}}>{sig.acc.tier}</div></td>
+                    <td style={{padding:'10px 12px',color:C.t2,fontSize:12}}>{sig.l}</td>
+                    <td style={{padding:'10px 12px'}}><Badge bg={sCol(sig.s)+'20'} color={sCol(sig.s)}>{sig.s}</Badge></td>
+                    <td style={{padding:'10px 12px',textAlign:'right',color:C.green,fontWeight:600,fontSize:13}}>{fmt(sig.acc.acv)}</td>
+                    <td style={{padding:'10px 12px'}}><Btn small onClick={(e)=>{e.stopPropagation();setFormAcct(sig.acc.id);resetForm();setFormAcct(sig.acc.id);setTab('create');}}>+ CSQL</Btn></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>)}
+
+        {/* ═══ CREATE TAB ═══ */}
+        {tab === 'create' && (<div>
+          <h1 style={{fontSize:20,fontWeight:700,margin:'0 0 4px'}}>Create CSQL</h1>
+          <p style={{fontSize:12,color:C.t3,margin:'0 0 20px'}}>AI-assisted lead creation with health enrichment</p>
+
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:20}}>
+            {/* Left: Form */}
+            <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, padding:20}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.t2,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:16}}>Lead Details</div>
+
+              <Field label="Account *">
+                <select style={inputStyle} value={formAcct} onChange={e=>{setFormAcct(e.target.value); setAiDone(false); setAiRec(null);}}>
+                  <option value="">Select account...</option>
+                  {ACCOUNTS.map(a=><option key={a.id} value={a.id}>{a.name} ({a.tier} · {fmt(a.acv)})</option>)}
+                </select>
+              </Field>
+
+              <Field label="Lead Type *">
+                <select style={inputStyle} value={formType} onChange={e=>setFormType(e.target.value)}>
+                  <option value="">Select type...</option>
+                  {TYPES.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}
+                </select>
+              </Field>
+
+              <Field label="Context / Notes">
+                <textarea style={{...inputStyle,minHeight:70,resize:'vertical'}} value={formNote} onChange={e=>setFormNote(e.target.value)} placeholder="What triggered this opportunity?"/>
+              </Field>
+
+              <Field label="Estimated ACV ($)">
+                <input style={inputStyle} type="number" value={formAcv} onChange={e=>setFormAcv(e.target.value)} placeholder="e.g. 250000"/>
+              </Field>
+
+              <Field label="Products">
+                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                  {PRODUCTS.map(p=>{
+                    const sel = formProducts.includes(p.id);
+                    return <button key={p.id} onClick={()=>setFormProducts(prev=>sel?prev.filter(x=>x!==p.id):[...prev,p.id])} style={{
+                      padding:'4px 8px', borderRadius:4, fontSize:10, fontWeight:600, cursor:'pointer', border:`1px solid ${sel?C.int:C.b1}`,
+                      background: sel ? C.int+'20' : C.bg3, color: sel ? C.int : C.t3, fontFamily:'inherit', transition:'all 0.12s',
+                    }}>{p.n}</button>;
+                  })}
+                </div>
+              </Field>
+
+              {/* AI Button */}
+              <button onClick={runAI} disabled={!acctObj||aiLoading} style={{
+                width:'100%', padding:'12px', border:'none', borderRadius:6, fontFamily:'inherit',
+                background: acctObj ? `linear-gradient(135deg, ${C.int}, ${C.green})` : C.b1,
+                color: acctObj ? '#fff' : C.t4, fontSize:13, fontWeight:700, cursor: acctObj?'pointer':'not-allowed',
+                opacity: aiLoading?0.7:1, marginBottom:12,
+              }}>{aiLoading ? '✨ Analyzing signals & whitespace...' : '🧠 Run AI Analysis'}</button>
+
+              <Btn variant="success" onClick={submitCSQL} style={{width:'100%', padding:'12px'}}>
+                ✓ Submit CSQL
+              </Btn>
+            </div>
+
+            {/* Right: Account context + AI result */}
+            <div>
+              {acctObj ? (<>
+                {/* Account snapshot */}
+                <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, padding:20, marginBottom:16}}>
+                  <div style={{display:'flex', alignItems:'center', gap:16, marginBottom:16}}>
+                    <ScoreRing score={acctObj.health} size={56}/>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:15}}>{acctObj.name}</div>
+                      <div style={{fontSize:11,color:C.t3}}>{acctObj.tier} · NPS {acctObj.nps} · {fmt(acctObj.acv)}</div>
+                      <div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>
+                        {acctObj.signals.map(sId=> {const sig=SIGNALS[sId]; return sig?<Badge key={sId} bg={sCol(sig.s)+'20'} color={sCol(sig.s)}>{sig.l}</Badge>:null;})}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Current products */}
+                  <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.3px',marginBottom:6,fontWeight:600}}>Installed ({acctObj.products.length})</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                    {acctObj.products.map(pId=>{const p=PRODUCTS.find(x=>x.id===pId); return p?<Badge key={pId} bg={C.int+'18'} color={C.int}>{p.n}</Badge>:null;})}
+                  </div>
+                  {/* Contacts */}
+                  <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.3px',marginTop:12,marginBottom:6,fontWeight:600}}>Stakeholders</div>
+                  {acctObj.contacts.map((c,i) => (
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                      <span style={{fontSize:12}}>{c.champ?'⭐':'👤'}</span>
+                      <span style={{fontSize:12,color:C.t1}}>{c.n}</span>
+                      <span style={{fontSize:10,color:C.t3}}>· {c.t}{c.champ?' · Champion':''}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* AI Recommendation */}
+                {aiDone && aiRec && (
+                  <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.int}40`, padding:20}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:12}}>
+                      <span style={{fontSize:14}}>🧠</span>
+                      <span style={{fontSize:11,fontWeight:700,color:C.int,textTransform:'uppercase',letterSpacing:'0.5px'}}>AI Recommendation</span>
+                    </div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,fontWeight:600,color:C.warn,marginBottom:3}}>WHY NOW</div>
+                      <div style={{fontSize:12,color:C.t2,lineHeight:1.6}}>{aiRec.whyNow}</div>
+                    </div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,fontWeight:600,color:C.green,marginBottom:3}}>PITCH SEQUENCE</div>
+                      <div style={{fontSize:12,color:C.t2}}>{aiRec.pitch}</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,fontWeight:600,color:C.green,marginBottom:3}}>ESTIMATED ACV</div>
+                      <div style={{fontSize:20,fontWeight:700,color:C.green}}>{fmt(aiRec.acv)}</div>
+                    </div>
+                  </div>
+                )}
+              </>) : (
+                <div style={{background:C.bg2, borderRadius:8, border:`1px dashed ${C.b1}`, padding:48, textAlign:'center'}}>
+                  <div style={{fontSize:36,marginBottom:8,opacity:0.3}}>📊</div>
+                  <div style={{fontSize:13,color:C.t3}}>Select an account to see health, signals, and AI recommendations</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>)}
+
+        {/* ═══ PIPELINE TAB ═══ */}
+        {tab === 'pipeline' && (<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+            <div>
+              <h1 style={{fontSize:20,fontWeight:700,margin:'0 0 4px'}}>CSQL Pipeline</h1>
+              <p style={{fontSize:12,color:C.t3,margin:0}}>{csqls.length} leads · {fmt(totalPipeline)} total pipeline</p>
+            </div>
+            <Btn onClick={()=>setTab('create')}>＋ New CSQL</Btn>
+          </div>
+
+          {/* Funnel strip */}
+          <div style={{display:'flex',gap:2,marginBottom:20}}>
+            {STATUSES.filter(s=>!['lost'].includes(s.k)).map(s => {
+              const ct = csqls.filter(c=>c.status===s.k).length;
+              return (
+                <div key={s.k} style={{flex:1, textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:700,color:s.c}}>{ct}</div>
+                  <div style={{height:4,background:ct>0?s.c:C.b1,borderRadius:2,margin:'4px 0'}}/>
+                  <div style={{fontSize:9,color:C.t3,textTransform:'uppercase'}}>{s.l}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* CSQL list */}
+          <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, overflow:'hidden'}}>
+            {csqls.map((csql, i) => {
+              const acc = ACCOUNTS.find(a=>a.id===csql.acctId);
+              const tp = TYPES.find(t=>t.v===csql.type);
+              return (
+                <div key={csql.id} onClick={()=>setDetail(csql)} style={{
+                  padding:16, borderBottom:`1px solid ${C.b1}`, cursor:'pointer',
+                  background: i%2===0 ? C.bg2 : C.bg3, transition:'background 0.1s',
+                }}>
+                  <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <ScoreRing score={csql.score} size={40}/>
+                    <div style={{flex:1}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2}}>
+                        <span style={{fontSize:11,color:C.int,fontWeight:600}}>{csql.id}</span>
+                        <StatusBadge status={csql.status}/>
+                        {tp && <Badge bg={tp.c+'20'} color={tp.c}>{tp.l}</Badge>}
+                      </div>
+                      <div style={{fontSize:14,fontWeight:600}}>{acc?.name||'Unknown'}</div>
+                      <div style={{fontSize:11,color:C.t3,marginTop:2}}>{csql.by} · {csql.date}</div>
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontSize:18,fontWeight:700,color:C.green}}>{fmt(csql.acv)}</div>
+                      <div style={{fontSize:10,color:C.t3}}>Est. ACV</div>
+                    </div>
+                  </div>
+                  {/* Products + signals */}
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:8}}>
+                    {csql.products.map(pId=>{const p=PRODUCTS.find(x=>x.id===pId); return p?<Badge key={pId} bg={C.int+'15'} color={C.int}>{p.n}</Badge>:null;})}
+                    {csql.signals.map(sId=>{const sig=SIGNALS[sId]; return sig?<Badge key={sId} bg={sCol(sig.s)+'15'} color={sCol(sig.s)}>{sig.l}</Badge>:null;})}
+                  </div>
+                  {csql.note && <div style={{fontSize:11,color:C.t3,marginTop:6,lineHeight:1.4}}>{csql.note}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>)}
+
+        {/* ═══ REVENUE TAB ═══ */}
+        {tab === 'revenue' && (<div>
+          <h1 style={{fontSize:20,fontWeight:700,margin:'0 0 4px'}}>CS Revenue Attribution</h1>
+          <p style={{fontSize:12,color:C.t3,margin:'0 0 20px'}}>Pipeline sourced by Customer Success</p>
+
+          <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24}}>
+            {[
+              {l:'Total CS Pipeline', v:fmt(totalPipeline), c:C.green},
+              {l:'Active CSQLs', v:activeCount, c:C.int},
+              {l:'Won Revenue', v:fmt(wonPipeline), c:C.ok},
+              {l:'Avg Lead Score', v: csqls.length ? Math.round(csqls.reduce((s,c)=>s+c.score,0)/csqls.length) : 0, c:C.warn},
+            ].map((m,i)=>(
+              <div key={i} style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, padding:16, borderLeft:`3px solid ${m.c}`}}>
+                <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.5px'}}>{m.l}</div>
+                <div style={{fontSize:26,fontWeight:700,color:m.c,marginTop:4}}>{m.v}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+            {/* By type */}
+            <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, padding:20}}>
+              <div style={{fontSize:11,fontWeight:600,color:C.t2,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:12}}>By Lead Type</div>
+              {TYPES.map(t=>{
+                const ct=csqls.filter(c=>c.type===t.v);
+                const pipe=ct.reduce((s,c)=>s+c.acv,0);
+                return(
+                  <div key={t.v} style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                    <div style={{width:3,height:28,background:t.c,borderRadius:2}}/>
+                    <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:C.t1}}>{t.l}</div><div style={{fontSize:10,color:C.t3}}>{ct.length} CSQLs</div></div>
+                    <div style={{fontSize:15,fontWeight:700,color:t.c}}>{fmt(pipe)}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* By stage */}
+            <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, padding:20}}>
+              <div style={{fontSize:11,fontWeight:600,color:C.t2,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:12}}>By Stage</div>
+              {STATUSES.map(s=>{
+                const ct=csqls.filter(c=>c.status===s.k);
+                const pipe=ct.reduce((a,c)=>a+c.acv,0);
+                if(!ct.length) return null;
+                const maxP = Math.max(...STATUSES.map(st=>csqls.filter(c=>c.status===st.k).reduce((a,c)=>a+c.acv,0)),1);
+                return(
+                  <div key={s.k} style={{marginBottom:10}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                      <span style={{fontSize:12,color:C.t2}}>{s.l} ({ct.length})</span>
+                      <span style={{fontSize:12,fontWeight:600,color:s.c}}>{fmt(pipe)}</span>
+                    </div>
+                    <div style={{height:6,background:C.b1,borderRadius:3}}>
+                      <div style={{width:`${(pipe/maxP)*100}%`,height:'100%',background:s.c,borderRadius:3,transition:'width 0.4s'}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* CSM leaderboard */}
+          <div style={{background:C.bg2, borderRadius:8, border:`1px solid ${C.b1}`, boxShadow:C.shadow, marginTop:16, overflow:'hidden'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{background:C.green}}>
+                {['CSM','CSQLs','Avg Score','Pipeline'].map((h,i)=><th key={i} style={{padding:'10px 12px',textAlign:i>=2?'right':'left',fontSize:11,fontWeight:600,color:'#fff',textTransform:'uppercase'}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{
+                Object.entries(csqls.reduce((acc,c)=>{
+                  if(!acc[c.by]) acc[c.by]={count:0,pipe:0,scores:[]};
+                  acc[c.by].count++; acc[c.by].pipe+=c.acv; acc[c.by].scores.push(c.score);
+                  return acc;
+                },{})).sort((a,b)=>b[1].pipe-a[1].pipe).map(([name,d],i)=>(
+                  <tr key={name} style={{background:i%2===0?C.bg2:C.bg3,borderBottom:`1px solid ${C.b1}`}}>
+                    <td style={{padding:'10px 12px',color:C.t1,fontWeight:600,fontSize:13}}>{name}</td>
+                    <td style={{padding:'10px 12px',color:C.t2,fontSize:13}}>{d.count}</td>
+                    <td style={{padding:'10px 12px',textAlign:'right'}}><Badge bg={hCol(Math.round(d.scores.reduce((a,b)=>a+b,0)/d.scores.length))+'20'} color={hCol(Math.round(d.scores.reduce((a,b)=>a+b,0)/d.scores.length))}>{Math.round(d.scores.reduce((a,b)=>a+b,0)/d.scores.length)}</Badge></td>
+                    <td style={{padding:'10px 12px',textAlign:'right',fontWeight:700,color:C.green,fontSize:14}}>{fmt(d.pipe)}</td>
+                  </tr>
+                ))
+              }</tbody>
+            </table>
+          </div>
+        </div>)}
+      </main>
+
+      {/* ── CSQL Detail Modal ── */}
+      {detail && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.25)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:400}} onClick={()=>setDetail(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.bg2,borderRadius:12,width:'100%',maxWidth:600,maxHeight:'85vh',overflowY:'auto',boxShadow:'0 8px 32px rgba(0,0,0,0.12)'}}>
+            {/* Header */}
+            <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.b1}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:13,color:C.int,fontWeight:600}}>{detail.id}</span><StatusBadge status={detail.status}/></div>
+                <div style={{fontSize:18,fontWeight:700,marginTop:4}}>{ACCOUNTS.find(a=>a.id===detail.acctId)?.name}</div>
+              </div>
+              <button onClick={()=>setDetail(null)} style={{background:'none',border:'none',color:C.t3,cursor:'pointer',fontSize:20}}>✕</button>
+            </div>
+            <div style={{padding:20}}>
+              {/* Metrics row */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:20}}>
+                <div style={{background:C.bg3,borderRadius:6,padding:12,borderLeft:`3px solid ${C.green}`}}>
+                  <div style={{fontSize:9,color:C.t3,textTransform:'uppercase'}}>Est. ACV</div>
+                  <div style={{fontSize:20,fontWeight:700,color:C.green}}>{fmt(detail.acv)}</div>
+                </div>
+                <div style={{background:C.bg3,borderRadius:6,padding:12,borderLeft:`3px solid ${hCol(detail.score)}`}}>
+                  <div style={{fontSize:9,color:C.t3,textTransform:'uppercase'}}>Lead Score</div>
+                  <div style={{fontSize:20,fontWeight:700,color:hCol(detail.score)}}>{detail.score}/100</div>
+                </div>
+                <div style={{background:C.bg3,borderRadius:6,padding:12,borderLeft:`3px solid ${C.int}`}}>
+                  <div style={{fontSize:9,color:C.t3,textTransform:'uppercase'}}>Type</div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.int,marginTop:2}}>{TYPES.find(t=>t.v===detail.type)?.l}</div>
+                </div>
+              </div>
+              {/* Products */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',marginBottom:6,fontWeight:600}}>Products</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                  {detail.products.map(pId=>{const p=PRODUCTS.find(x=>x.id===pId); return p?<Badge key={pId} bg={C.int+'18'} color={C.int}>{p.n}</Badge>:null;})}
+                </div>
+              </div>
+              {/* Signals */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',marginBottom:6,fontWeight:600}}>Signals</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                  {detail.signals.map(sId=>{const sig=SIGNALS[sId]; return sig?<Badge key={sId} bg={sCol(sig.s)+'18'} color={sCol(sig.s)}>{sig.l}</Badge>:null;})}
+                </div>
+              </div>
+              {/* Note */}
+              {detail.note && (
+                <div style={{background:C.bg3,borderRadius:6,padding:12,borderLeft:`3px solid ${C.int}`,marginBottom:16}}>
+                  <div style={{fontSize:10,color:C.int,fontWeight:600,textTransform:'uppercase',marginBottom:4}}>CS Narrative</div>
+                  <div style={{fontSize:12,color:C.t2,lineHeight:1.6}}>{detail.note}</div>
+                </div>
+              )}
+              {/* Status flow */}
+              <div style={{display:'flex',gap:3,flexWrap:'wrap',marginBottom:16}}>
+                {STATUSES.map((s,i)=>(
+                  <React.Fragment key={s.k}>
+                    <span style={{padding:'4px 10px',borderRadius:4,fontSize:10,fontWeight:600, background:s.k===detail.status?s.c:'transparent', color:s.k===detail.status?'#fff':C.t4, border:`1px solid ${s.k===detail.status?s.c:C.b1}`}}>{s.l}</span>
+                    {i<STATUSES.length-1 && <span style={{color:C.t4,fontSize:10,display:'flex',alignItems:'center'}}>→</span>}
+                  </React.Fragment>
+                ))}
+              </div>
+              {/* Actions */}
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',borderTop:`1px solid ${C.b1}`,paddingTop:16}}>
+                {(nextStatus[detail.status]||[]).map(ns => {
+                  const nsObj = STATUSES.find(s=>s.k===ns);
+                  return <button key={ns} onClick={()=>advanceStatus(detail.id,ns)} style={{padding:'8px 16px',border:'none',borderRadius:4,background:nsObj.c,color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>→ {nsObj.l}</button>;
+                })}
+                <button onClick={()=>{
+                  const acc = ACCOUNTS.find(a=>a.id===detail.acctId);
+                  const prods = detail.products.map(id=>PRODUCTS.find(p=>p.id===id)?.n).filter(Boolean).join(', ');
+                  const email = `Subject: CSQL Handoff — ${acc?.name} | ${fmt(detail.acv)}\n\nCSQL: ${detail.id}\nAccount: ${acc?.name}\nHealth: ${acc?.health}/100 | Lead Score: ${detail.score}/100\nEst ACV: ${fmt(detail.acv)}\n\nProducts: ${prods}\n\nCS Narrative:\n${detail.note}\n\nSignals: ${detail.signals.map(s=>SIGNALS[s]?.l).join(', ')}\n\nCreated: ${detail.by} · ${detail.date}`;
+                  navigator.clipboard?.writeText(email); alert('Handoff email copied to clipboard!');
+                }} style={{padding:'8px 16px',border:`1px solid ${C.b1}`,borderRadius:4,background:C.bg3,color:C.t2,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',marginLeft:'auto'}}>📧 Copy Handoff</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Account Slide-out ── */}
+      {acctPanel && (
+        <div style={{position:'fixed',top:0,right:0,bottom:0,width:400,background:C.bg2,borderLeft:`1px solid ${C.b1}`,zIndex:300,overflowY:'auto',padding:20,boxShadow:'-4px 0 16px rgba(0,0,0,0.1)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:700}}>{acctPanel.name}</div>
+            <button onClick={()=>setAcctPanel(null)} style={{background:'none',border:'none',color:C.t3,cursor:'pointer',fontSize:18}}>✕</button>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+            <ScoreRing score={acctPanel.health} size={56}/>
+            <div>
+              <Badge bg={hCol(acctPanel.health)+'20'} color={hCol(acctPanel.health)}>{hLbl(acctPanel.health)}</Badge>
+              <div style={{fontSize:11,color:C.t3,marginTop:4}}>{acctPanel.tier} · NPS {acctPanel.nps} · {fmt(acctPanel.acv)}</div>
+            </div>
+          </div>
+          <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.3px',marginBottom:6,fontWeight:600}}>Expansion Signals</div>
+          {acctPanel.signals.map(sId=>{const sig=SIGNALS[sId]; return sig?(
+            <div key={sId} style={{fontSize:12,color:C.t2,marginBottom:6,paddingLeft:8,borderLeft:`2px solid ${sCol(sig.s)}`}}>
+              <div style={{fontWeight:600}}>{sig.l}</div>
+            </div>
+          ):null;})}
+          <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.3px',marginTop:14,marginBottom:6,fontWeight:600}}>Installed Products</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:14}}>
+            {acctPanel.products.map(pId=>{const p=PRODUCTS.find(x=>x.id===pId); return p?<Badge key={pId} bg={C.int+'18'} color={C.int}>{p.n}</Badge>:null;})}
+          </div>
+          <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.3px',marginBottom:6,fontWeight:600}}>Stakeholders</div>
+          {acctPanel.contacts.map((c,i)=>(
+            <div key={i} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+              <span style={{fontSize:11}}>{c.champ?'⭐':'👤'}</span>
+              <span style={{fontSize:12,color:C.t1}}>{c.n}</span>
+              <span style={{fontSize:10,color:C.t3}}>· {c.t}</span>
+            </div>
+          ))}
+          <Btn onClick={()=>{setFormAcct(acctPanel.id);setAiDone(false);setAiRec(null);setAcctPanel(null);setTab('create');}} style={{width:'100%',marginTop:16}}>+ Create CSQL</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.render(React.createElement(CSQLWorkspace), document.getElementById('root'));
+</script>
+</body>
+</html>
